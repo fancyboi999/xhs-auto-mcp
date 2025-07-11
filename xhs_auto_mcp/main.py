@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from pydantic import Field
 import requests
-from tools.write_xiaohongshu import XiaohongshuPoster
+from xhs_auto_mcp.tools.write_xiaohongshu import XiaohongshuPoster
 from mcp.types import TextContent
 from xhs_auto_mcp.tools.xhs_api import XhsApi
 from xhs_auto_mcp.tools.log_utils import logger, setup_logger
@@ -24,7 +24,7 @@ setup_logger(log_level="INFO")
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--transport", type=str, default='stdio')
+parser.add_argument("--transport", type=str, default='http')
 parser.add_argument("--port", type=int, default=8809)
 parser.add_argument("--host", type=str, default='0.0.0.0')
 
@@ -247,16 +247,22 @@ async def post_comment(comment: Annotated[str, Field(description="评论内容")
     if 'success' in response and response['success'] == True:
         return "回复成功"
     else:
-        result = await check_content_cookie()
-        if "有效" in result:
-            return "回复失败"
-        else:
-            return result
+        # 直接实现cookie检查逻辑，而不是调用check_content_cookie工具
+        try:
+            data = await xhs_api.get_me()
+            if 'success' in data and data['success'] == True:
+                return "回复失败"
+            else:
+                return "cookie已失效"
+        except Exception as e:
+            logger.error(e)
+            return "cookie已失效"
         
 @mcp.tool()
 def login(phone: Annotated[str, Field(description="手机号")], country_code: Annotated[Optional[str], Field(description="国家代码")] = "+86"):
     """
-    打开浏览器，发送验证码，等待用户输入验证码，登录小红书
+    小红书创作平台工具
+    打开浏览器，发送验证码，等待用户输入验证码，登录小红书创作平台
     若用户未提供手机号，请告诉用户，请提供手机号
 
     Returns:
@@ -275,7 +281,8 @@ def login(phone: Annotated[str, Field(description="手机号")], country_code: A
 @mcp.tool()
 def wait_for_verify_code(verification_code: Annotated[str, Field(description="验证码")]):
     """
-    等待用户输入验证码，登录小红书
+    小红书创作平台工具
+    等待用户输入验证码，登录小红书创作平台
     
     Returns:
         str: 验证码输入结果，及登录结果
@@ -304,25 +311,45 @@ def create_note_with_images(title: Annotated[str, Field(description="小红书�
         # 处理本地图片路径
         if image_paths:
             local_paths = [path.strip() for path in image_paths.split(',')]
+            # 检查图片文件是否存在
+            for img_path in local_paths:
+                if not os.path.exists(img_path):
+                    logger.error(f"图片文件不存在: {img_path}")
+                    return [TextContent(type="text", text=f"错误：图片文件不存在: {img_path}")]
+                else:
+                    logger.info(f"图片文件存在: {img_path}")
             images.extend(local_paths)
             
         # 处理图片URL
-        if image_urls:
+        if not images and image_urls:
             urls = [url.strip() for url in image_urls.split(',')]
             if urls:
                 # 使用并行下载图片
-                downloaded_images = download_images_parallel(urls)
-                images.extend(downloaded_images)
+                try:
+                    downloaded_images = download_images_parallel(urls)
+                    images.extend(downloaded_images)
+                    logger.info(f"成功下载图片: {downloaded_images}")
+                except Exception as e:
+                    logger.error(f"下载图片失败: {str(e)}")
+                    return [TextContent(type="text", text=f"错误：下载图片失败: {str(e)}")]
                 
         # 确保至少有一张图片
         if not images:
             return [TextContent(type="text", text="错误：至少需要提供一张图片（本地路径或URL）")]
             
-        code,info=poster.login_to_publish(title, content, images, slow_mode)
-        poster.close()
+        logger.info(f"准备发布笔记，标题: {title}, 内容长度: {len(content)}, 图片数量: {len(images)}")
+        code, info = poster.login_to_publish(title, content, images, slow_mode)
+        logger.info(f"发布结果: 成功={code}, 信息={info}")
         res = info
     except Exception as e:
-        res = "error:" + str(e)
+        logger.error(f"发布笔记异常: {str(e)}", exc_info=True)
+        res = f"error: {str(e)}"
+    finally:
+        try:
+            poster.close()
+            logger.info("浏览器已关闭")
+        except Exception as e:
+            logger.error(f"关闭浏览器时发生错误: {str(e)}")
 
     return [TextContent(type="text", text=res)]
 
@@ -345,25 +372,45 @@ def create_note_with_videos(title: Annotated[str, Field(description="小红书�
         # 处理本地视频路径
         if video_paths:
             local_paths = [path.strip() for path in video_paths.split(',')]
+            # 检查视频文件是否存在
+            for video_path in local_paths:
+                if not os.path.exists(video_path):
+                    logger.error(f"视频文件不存在: {video_path}")
+                    return [TextContent(type="text", text=f"错误：视频文件不存在: {video_path}")]
+                else:
+                    logger.info(f"视频文件存在: {video_path}")
             videos.extend(local_paths)
             
         # 处理视频URL
-        if video_urls:
+        if not videos and video_urls:
             urls = [url.strip() for url in video_urls.split(',')]
             if urls:
                 # 使用并行下载视频
-                downloaded_videos = download_images_parallel(urls)
-                videos.extend(downloaded_videos)
+                try:
+                    downloaded_videos = download_images_parallel(urls)
+                    videos.extend(downloaded_videos)
+                    logger.info(f"成功下载视频: {downloaded_videos}")
+                except Exception as e:
+                    logger.error(f"下载视频失败: {str(e)}")
+                    return [TextContent(type="text", text=f"错误：下载视频失败: {str(e)}")]
                 
         # 确保至少有一个视频
         if not videos:
             return [TextContent(type="text", text="错误：至少需要提供一个视频（本地路径或URL）")]
             
-        code,info=poster.login_to_publish_video(title, content, videos, slow_mode)
-        poster.close()
+        logger.info(f"准备发布视频笔记，标题: {title}, 内容长度: {len(content)}, 视频数量: {len(videos)}")
+        code, info = poster.login_to_publish_video(title, content, videos, slow_mode)
+        logger.info(f"发布结果: 成功={code}, 信息={info}")
         res = info
     except Exception as e:
-        res = "error:" + str(e)
+        logger.error(f"发布视频笔记异常: {str(e)}", exc_info=True)
+        res = f"error: {str(e)}"
+    finally:
+        try:
+            poster.close()
+            logger.info("浏览器已关闭")
+        except Exception as e:
+            logger.error(f"关闭浏览器时发生错误: {str(e)}")
 
     return [TextContent(type="text", text=res)]
 

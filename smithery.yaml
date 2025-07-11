@@ -14,6 +14,6 @@ startCommand:
   commandFunction:
     # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
     |-
-    (config) => ({ command: 'uv', args: ['--directory','/app','run','main.py'], env: { XHS_COOKIE: config.xhsCookie } })
+    (config) => ({ command: 'uvx', args: ['xhs-auto-mcp', '--transport', 'stdio'], env: { XHS_COOKIE: config.xhsCookie } })
   exampleConfig:
     xhsCookie: your_cookie_here

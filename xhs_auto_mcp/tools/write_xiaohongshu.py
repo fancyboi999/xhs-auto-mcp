@@ -4,7 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from tools.log_utils import logger
+from xhs_auto_mcp.tools.log_utils import logger
 import time
 import json
 import os
@@ -99,10 +99,24 @@ class XiaohongshuPoster:
 
         # 上传图片
         if images:
-            upload_input = self.driver.find_element(By.CSS_SELECTOR, ".upload-input")
-            # 将所有图片路径用\n连接成一个字符串一次性上传
-            upload_input.send_keys('\n'.join(images))
-            time.sleep(1)
+            logger.info(f"准备上传图片，路径: {images}")
+            # 检查图片文件是否存在
+            for img_path in images:
+                if not os.path.exists(img_path):
+                    logger.error(f"图片文件不存在: {img_path}")
+                    return False, f"图片文件不存在: {img_path}"
+                else:
+                    logger.info(f"图片文件存在: {img_path}")
+            
+            try:
+                upload_input = self.driver.find_element(By.CSS_SELECTOR, ".upload-input")
+                # 将所有图片路径用\n连接成一个字符串一次性上传
+                upload_input.send_keys('\n'.join(images))
+                logger.info("图片上传成功")
+                time.sleep(2)  # 增加等待时间，确保图片上传完成
+            except Exception as e:
+                logger.error(f"图片上传失败: {str(e)}")
+                return False, f"图片上传失败: {str(e)}"
         time.sleep(1)
         title = title[:20]
         title_input = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".d-text")))
@@ -136,10 +150,24 @@ class XiaohongshuPoster:
 
         # # 输入标题和内容
         if videos:
-            upload_input = self.driver.find_element(By.CSS_SELECTOR, ".upload-input")
-            # 将所有图片路径用\n连接成一个字符串一次性上传
-            upload_input.send_keys('\n'.join(videos))
-            time.sleep(1)
+            logger.info(f"准备上传视频，路径: {videos}")
+            # 检查视频文件是否存在
+            for video_path in videos:
+                if not os.path.exists(video_path):
+                    logger.error(f"视频文件不存在: {video_path}")
+                    return False, f"视频文件不存在: {video_path}"
+                else:
+                    logger.info(f"视频文件存在: {video_path}")
+            
+            try:
+                upload_input = self.driver.find_element(By.CSS_SELECTOR, ".upload-input")
+                # 将所有视频路径用\n连接成一个字符串一次性上传
+                upload_input.send_keys('\n'.join(videos))
+                logger.info("视频上传成功")
+                time.sleep(3)  # 增加等待时间，确保视频上传完成
+            except Exception as e:
+                logger.error(f"视频上传失败: {str(e)}")
+                return False, f"视频上传失败: {str(e)}"
         time.sleep(3)
         title = title[:20]
         title_input = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".d-text")))
