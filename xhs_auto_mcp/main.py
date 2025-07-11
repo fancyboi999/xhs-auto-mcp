@@ -1,3 +1,4 @@
+import sys
 from typing import Annotated, Any, List, Dict, Optional
 import asyncio
 import concurrent
@@ -6,13 +7,15 @@ import time
 import json
 import os
 from datetime import datetime
-from mcp.server.fastmcp import FastMCP, Context
+from fastmcp import FastMCP
+from dotenv import load_dotenv
 
+from pydantic import Field
 import requests
-from api.write_xiaohongshu import XiaohongshuPoster
+from tools.write_xiaohongshu import XiaohongshuPoster
 from mcp.types import TextContent
-from api.xhs_api import XhsApi
-from api.log_utils import logger, setup_logger
+from xhs_auto_mcp.tools.xhs_api import XhsApi
+from xhs_auto_mcp.tools.log_utils import logger, setup_logger
 from urllib.parse import urlparse, parse_qs
 import argparse
 
@@ -21,17 +24,21 @@ setup_logger(log_level="INFO")
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--type", type=str, default='stdio')
+parser.add_argument("--transport", type=str, default='stdio')
 parser.add_argument("--port", type=int, default=8809)
+parser.add_argument("--host", type=str, default='0.0.0.0')
 
 args = parser.parse_args()
 
 mcp = FastMCP("小红书内容获取及自动发布", port=args.port)
 
+# 加载.env文件中的环境变量
+load_dotenv()
+
 xhs_cookie = os.getenv('XHS_COOKIE')
-# phone = os.getenv("phone", "")
-path= os.getenv("JSON_PATH","/Users/fancy/")
-slow_mode=os.getenv("slow_mode","False").lower() == "true"
+# 默认缓存路径为当前目录
+path= os.getenv("JSON_PATH","./")
+slow_mode=os.getenv("SLOW_MODE","False").lower() == "true"
 
 xhs_api = XhsApi(cookie=xhs_cookie)
 
@@ -51,10 +58,31 @@ def get_nodeid_token(url=None, note_ids=None):
         xsec_token = xsec_token_list[0]
     return {"note_id": note_id, "xsec_token": xsec_token}
 
+def download_image(url):
+    local_filename = url.split('/')[-1]
+    temp_dir = tempfile.gettempdir()
+
+    local_path = os.path.join(temp_dir, local_filename)  # 假设缓存地址为/tmp
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(local_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+    return local_path
+
+def download_images_parallel(urls):
+    """
+    并行下载图片到本地缓存地址
+    """
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(download_image, urls))
+    return results
+
 
 @mcp.tool()
 async def check_content_cookie() -> str:
     """
+    小红书内容平台工具
     检测小红书内容平台cookie是否有效
     
     Returns:
@@ -74,8 +102,12 @@ async def check_content_cookie() -> str:
 
 @mcp.tool()
 async def home_feed() -> str:
-    """获取首页推荐笔记
-
+    """
+    小红书内容平台工具
+    获取首页推荐笔记
+    
+    Returns:
+        str: 首页推荐笔记列表
     """
     data = await xhs_api.home_feed()
     result = "搜索结果：\n\n"
@@ -95,11 +127,13 @@ async def home_feed() -> str:
     return result
 
 @mcp.tool()
-async def search_notes(keywords: str) -> str:
-    """根据关键词搜索笔记
-
-        Args:
-            keywords: 搜索关键词
+async def search_notes(keywords: Annotated[str, Field(description="搜索关键词")]) -> str:
+    """
+    小红书内容平台工具
+    根据关键词搜索笔记
+    
+    Returns:
+        str: 搜索结果
     """
 
     data = await xhs_api.search_notes(keywords)
@@ -122,11 +156,13 @@ async def search_notes(keywords: str) -> str:
 
 
 @mcp.tool()
-async def get_note_content(url: str) -> str:
-    """获取笔记内容,参数url要带上xsec_token
-
-    Args:
-        url: 笔记 url
+async def get_note_content(url: Annotated[str, Field(description="笔记url,要带上xsec_token")]) -> str:
+    """
+    小红书内容平台工具
+    获取笔记详细内容
+    
+    Returns:
+        str: 笔记内容
     """
     params = get_nodeid_token(url=url)
     data = await xhs_api.get_note_content(**params)
@@ -168,12 +204,13 @@ async def get_note_content(url: str) -> str:
 
 
 @mcp.tool()
-async def get_note_comments(url: str) -> str:
-    """获取笔记评论,参数url要带上xsec_token
-
-    Args:
-        url: 笔记 url
+async def get_note_comments(url: Annotated[str, Field(description="笔记url,要带上xsec_token")]) -> str:
+    """
+    小红书内容平台工具
+    获取笔记评论
     
+    Returns:
+        str: 笔记评论
     """
     params = get_nodeid_token(url=url)
 
@@ -197,12 +234,13 @@ async def get_note_comments(url: str) -> str:
 
 
 @mcp.tool()
-async def post_comment(comment: str, note_id: str) -> str:
-    """发布评论到指定笔记
-
-    Args:
-        note_id: 笔记 note_id
-        comment: 要发布的评论内容
+async def post_comment(comment: Annotated[str, Field(description="评论内容")], note_id: Annotated[str, Field(description="笔记id")]) -> str:
+    """
+    小红书内容平台工具
+    进行评论到指定笔记
+    
+    Returns:
+        str: 发布结果
     """
     # params = get_nodeid_token(url)
     response = await xhs_api.post_comment(note_id, comment)
@@ -216,15 +254,13 @@ async def post_comment(comment: str, note_id: str) -> str:
             return result
         
 @mcp.tool()
-def login(phone: Annotated[str, "手机号"], country_code: Annotated[Optional[str], "国家代码"] = "+86"):
+def login(phone: Annotated[str, Field(description="手机号")], country_code: Annotated[Optional[str], Field(description="国家代码")] = "+86"):
     """
     打开浏览器，发送验证码，等待用户输入验证码，登录小红书
     若用户未提供手机号，请告诉用户，请提供手机号
-    
-    Args:
-        phone: 手机号
-        country_code: 国家代码,默认+86
-        
+
+    Returns:
+        str: 打开浏览器及发送验证码结果
     """
     # 重置之前可能存在的实例
     XiaohongshuPoster.reset_instance()
@@ -237,48 +273,27 @@ def login(phone: Annotated[str, "手机号"], country_code: Annotated[Optional[s
     return message
 
 @mcp.tool()
-def wait_for_verify_code(verification_code: Annotated[str, "验证码"]):
+def wait_for_verify_code(verification_code: Annotated[str, Field(description="验证码")]):
     """
     等待用户输入验证码，登录小红书
-
-    Args:
-        verification_code: 验证码
-        
+    
+    Returns:
+        str: 验证码输入结果，及登录结果
     """
     # 使用已存在的实例
     poster = XiaohongshuPoster(path)
     success, message = poster.wait_for_verify_code(verification_code)
     return message
 
-def download_image(url):
-    local_filename = url.split('/')[-1]
-    temp_dir = tempfile.gettempdir()
-
-    local_path = os.path.join(temp_dir, local_filename)  # 假设缓存地址为/tmp
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        with open(local_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-    return local_path
-
-def download_images_parallel(urls):
-    """
-    并行下载图片到本地缓存地址
-    """
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        results = list(executor.map(download_image, urls))
-    return results
-
 @mcp.tool()
-def create_note_with_images(title: str, content: str, image_paths: Annotated[Optional[str], "本地图片路径,多个路径用逗号分隔"] = None, image_urls: Annotated[Optional[str], "图片URL链接,多个URL用逗号分隔"] = None) -> list[TextContent]:
-    """创建小红书笔记支持本地图片和图片URL,必须提供图片路径或URL ,如果提供图片URL,则忽略本地图片路径,如果提供本地图片路径则忽略图片URL,如果都提供，则优先使用本地图片路径
-
-    Args:
-        title: 小红书笔记标题，不能超过20个字
-        content: 小红书笔记正文内容，不能超过1000个字
-        image_paths: 本地图片路径，多个路径用逗号分隔，如果提供图片URL，则忽略此参数
-        image_urls: 图片URL链接，多个URL用逗号分隔，如果提供本地图片路径，则忽略此参数
+def create_note_with_images(title: Annotated[str, Field(description="小红书笔记标题，不能超过20个字")], content: Annotated[str, Field(description="小红书笔记正文内容，不能超过1000个字")], image_paths: Annotated[Optional[str], Field(description="本地图片路径,多个路径用逗号分隔")] = None, image_urls: Annotated[Optional[str], Field(description="图片URL链接,多个URL用逗号分隔")] = None) -> list[TextContent]:
+    """
+    小红书创作平台工具
+    创建小红书笔记支持本地图片和图片URL,必须提供图片路径或URL。
+    如果提供图片URL,则忽略本地图片路径,如果提供本地图片路径则忽略图片URL,如果都提供，则优先使用本地图片路径
+    
+    Returns:
+        list[TextContent]: 发布结果
     """
     poster = XiaohongshuPoster(path)
     #poster.login(phone)
@@ -312,14 +327,14 @@ def create_note_with_images(title: str, content: str, image_paths: Annotated[Opt
     return [TextContent(type="text", text=res)]
 
 @mcp.tool()
-def create_note_with_videos(title: str, content: str, video_paths: Annotated[Optional[str], "本地视频路径,多个路径用逗号分隔"] = None, video_urls: Annotated[Optional[str], "视频URL链接,多个URL用逗号分隔"] = None) -> list[TextContent]:
-    """创建小红书笔记支持本地视频和视频URL,必须提供视频路径或URL ,如果提供视频URL,则忽略本地视频路径,如果提供本地视频路径则忽略视频URL,如果都提供，则优先使用本地视频路径
-
-    Args:
-        title: 小红书笔记标题，不能超过20个字
-        content: 小红书笔记正文内容，不能超过1000个字
-        video_paths: 本地视频路径，多个路径用逗号分隔，如果提供视频URL，则忽略此参数
-        video_urls: 视频URL链接，多个URL用逗号分隔，如果提供本地视频路径，则忽略此参数
+def create_note_with_videos(title: Annotated[str, Field(description="小红书笔记标题，不能超过20个字")], content: Annotated[str, Field(description="小红书笔记正文内容，不能超过1000个字")], video_paths: Annotated[Optional[str], Field(description="本地视频路径,多个路径用逗号分隔")] = None, video_urls: Annotated[Optional[str], Field(description="视频URL链接,多个URL用逗号分隔")] = None) -> list[TextContent]:
+    """
+    小红书创作平台工具
+    创建小红书笔记支持本地视频和视频URL,必须提供视频路径或URL 。
+    如果提供视频URL,则忽略本地视频路径,如果提供本地视频路径则忽略视频URL,如果都提供，则优先使用本地视频路径
+    
+    Returns:
+        list[TextContent]: 发布结果
     """
     poster = XiaohongshuPoster(path)
     #poster.login(phone)
@@ -352,6 +367,22 @@ def create_note_with_videos(title: str, content: str, video_paths: Annotated[Opt
 
     return [TextContent(type="text", text=res)]
 
+def app():
+    host = args.host
+    port = args.port
+    transport = args.transport
+    try:
+        if transport == "http":
+            mcp.run(host=host, port=port, transport=transport)
+        elif transport == "stdio":
+            mcp.run(transport=transport)
+        else:
+            raise ValueError("不支持的端口形式")
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+    except Exception as e:
+        logger.error(f"Error running server: {str(e)}")
+        sys.exit(1)
+
 if __name__ == "__main__":
-    logger.info("mcp run")
-    mcp.run(transport="streamable-http")
+    app()

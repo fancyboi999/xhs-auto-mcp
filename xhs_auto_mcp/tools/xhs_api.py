@@ -13,7 +13,7 @@ from numbers import Integral
 from typing import Iterable, List, Optional, Tuple
 import random
 import base64
-from api.log_utils import logger
+from xhs_auto_mcp.tools.log_utils import logger
 
 class XhsApi:
     def __init__(self,cookie):
@@ -93,9 +93,13 @@ class XhsApi:
         return self.base36encode((e + t))
 
     def get_xs_xt(self,uri, data, cookie):
-        current_directory = os.path.dirname(__file__)
+        current_directory = os.path.dirname(os.path.abspath(__file__))
         file_path = os.path.join(current_directory, "xhsvm.js")
-        return execjs.compile(open(file_path, 'r', encoding='utf-8').read()).call('GetXsXt', uri, data, cookie)
+        try:
+            return execjs.compile(open(file_path, 'r', encoding='utf-8').read()).call('GetXsXt', uri, data, cookie)
+        except FileNotFoundError:
+            logger.error(f"找不到文件: {file_path}")
+            raise
 
     async def get_me(self) -> Dict:
         uri = '/api/sns/web/v2/user/me'

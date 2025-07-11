@@ -1,13 +1,7 @@
-# 小红书MCP服务
-[![smithery badge](https://smithery.ai/badge/@jobsonlook/xhs-mcp)](https://smithery.ai/server/@jobsonlook/xhs-mcp)
-## 特点
-- [x] 采用js逆向出x-s,x-t,直接请求http接口,无须笨重的playwright
-- [x] 搜索笔记
-- [x] 获取笔记内容
-- [x] 获取笔记的评论
-- [x] 发表评论
+# 自动化小红书MCP服务器
 
-![特性](https://raw.githubusercontent.com/jobsonlook/xhs-mcp/master/docs/feature.png)
+
+
 
 ## 快速开始
 
@@ -19,10 +13,12 @@
 ### 2. 安装依赖
 ```sh
 
-git clone git@github.com:jobsonlook/xhs-mcp.git
+git clone https://github.com/fancyboi999/xhs-auto-mcp.git
 
-cd xhs-mcp
-uv sync 
+cd xhs-auto-mcp
+uv venv
+source .venv/bin/activate
+uv pip install -e .
 
 ```
 
@@ -36,16 +32,12 @@ uv sync
 ```json
 {
     "mcpServers": {
-        "xhs-mcp": {
-            "command": "uv",
-            "args": [
-                "--directory",
-                "/Users/xxx/xhs-mcp",
-                "run",
-                "main.py"
-            ],
+        "xhs-auto-mcp": {
+            "command": "uvx",
+            "args":["xhs-auto-mcp", "--transport", "stdio"]
             "env": {
-                "XHS_COOKIE": "xxxx"
+                "XHS_COOKIE": "xxxx",
+                "JSON_PATH": "your_token_save_path"
             }
         }
     }
@@ -54,4 +46,3 @@ uv sync
 
 ## 免责声明
 本项目仅用于学习交流，禁止用于其他用途，任何涉及商业盈利目的均不得使用，否则风险自负。
-
