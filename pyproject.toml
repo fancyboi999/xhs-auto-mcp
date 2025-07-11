@@ -1,6 +1,6 @@
 [project]
 name = "xhs-auto-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "小红书自动化工具mcp服务器，提供小红书内容发布及交互功能"
 readme = "README.md"
 requires-python = ">=3.12"
